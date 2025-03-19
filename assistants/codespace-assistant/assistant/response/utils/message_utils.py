@@ -38,7 +38,7 @@ def build_system_message_content(
     context: ConversationContext,
     participants: list[ConversationParticipant],
     silence_token: str,
-    additional_content: list[tuple[str, str]] | None = None,
+    additional_content: list[tuple[str, str]] = [],
 ) -> str:
     """
     Construct the system message content with tool descriptions and instructions.
@@ -67,9 +67,8 @@ def build_system_message_content(
     system_message_content += f"\n\n# Workflow Guidance:\n{prompts_config.guidance_prompt}"
     system_message_content += f"\n\n# Safety Guardrails:\n{prompts_config.guardrails_prompt}"
 
-    if additional_content:
-        for section in additional_content:
-            system_message_content += f"\n\n# {section[0]}:\n{section[1]}"
+    for header, content in additional_content:
+        system_message_content += f"\n\n# {header}:\n{content}"
 
     return system_message_content
 

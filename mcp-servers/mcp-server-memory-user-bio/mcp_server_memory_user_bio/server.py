@@ -1,5 +1,4 @@
 import datetime
-from collections import defaultdict
 from dataclasses import dataclass
 import logging
 from mcp import ClientCapabilities, RootsCapability, ServerSession
@@ -8,7 +7,7 @@ import zoneinfo
 from mcp.server.fastmcp import Context, FastMCP
 from pydantic import AnyUrl
 
-from . import settings
+from . import config, mem
 
 logger = logging.getLogger(__name__)
 
@@ -17,19 +16,8 @@ server_name = "Memory - User Bio MCP Server"
 
 
 @dataclass
-class UserBioMemory:
-    """
-    A dataclass representing the memory of a user.
-    This is used to store long-term details about the user.
-    """
-
-    date: datetime.date
-    memory: str
-
-
-@dataclass
 class SessionConfig:
-    user_timezone: datetime.tzinfo | None
+    user_timezone: datetime.tzinfo
     session_id: str
 
 
@@ -38,11 +26,7 @@ memory_uri = "resource://memory/user-bio"
 
 def create_mcp_server() -> FastMCP:
     # Initialize FastMCP with debug logging.
-    mcp = FastMCP(name=server_name, log_level=settings.log_level)
-
-    memories: dict[str, list[UserBioMemory]] = defaultdict(
-        lambda: [UserBioMemory(date=datetime.date.today(), memory="Mark likes python")]
-    )
+    mcp = FastMCP(name=server_name, log_level=config.settings.log_level)
 
     @mcp.tool()
     async def bio(memory: str) -> str:
@@ -60,14 +44,11 @@ def create_mcp_server() -> FastMCP:
         ctx = mcp.get_context()
         client_roots = await get_session_config(ctx)
 
-        memory_date = get_user_date(user_timezone=client_roots.user_timezone)
-
-        memory_entry = UserBioMemory(
-            date=memory_date,
+        mem.remember(
+            session_id=client_roots.session_id,
+            user_timezone=client_roots.user_timezone,
             memory=memory,
         )
-
-        memories[client_roots.session_id].append(memory_entry)
 
         await ctx.session.send_resource_updated(uri=AnyUrl(memory_uri))
 
@@ -82,11 +63,10 @@ def create_mcp_server() -> FastMCP:
         ctx = mcp.get_context()
         client_roots = await get_session_config(ctx)
 
-        original_length = len(memories[client_roots.session_id])
-        memories[client_roots.session_id] = [
-            entry for entry in memories[client_roots.session_id] if entry.memory != memory
-        ]
-        found = len(memories[client_roots.session_id]) < original_length
+        found = mem.forget(
+            session_id=client_roots.session_id,
+            memory=memory,
+        )
 
         if not found:
             return "Memory not found."
@@ -95,7 +75,9 @@ def create_mcp_server() -> FastMCP:
 
         return "Memory forgotten successfully."
 
-    @mcp.resource(uri=memory_uri, name="User Bio Memory", description="Long-term memory about the user.")
+    @mcp.resource(
+        uri=memory_uri, name="User Bio Memory", description="Long-term memory about the user.", mime_type="text/plain"
+    )
     async def get_bio() -> str:
         """
         The long-term memories about the user.
@@ -104,16 +86,17 @@ def create_mcp_server() -> FastMCP:
         ctx = mcp.get_context()
         client_roots = await get_session_config(ctx)
 
-        if not memories[client_roots.session_id]:
+        memories = mem.get_memories(
+            session_id=client_roots.session_id,
+        )
+
+        if not memories:
             return "No memories saved."
 
-        # Sort memories by date
-        session_memories = sorted(memories[client_roots.session_id], key=lambda x: x.date)
-
         # Format the memories into a string
-        formatted_memories = "\n".join(f"[{memory.date}] {memory.memory}" for memory in session_memories)
+        formatted_memories = "\n".join(f"[{memory.date}] {memory.memory}" for memory in memories)
 
-        return f"Here are your memories about the user:\n{formatted_memories}"
+        return f"Memories about the user:\n{formatted_memories}"
 
     return mcp
 
@@ -122,14 +105,14 @@ async def get_session_config(ctx: Context[ServerSession, object]) -> SessionConf
     """
     Get the session configuration from the client.
     """
+    user_timezone: datetime.tzinfo = datetime.timezone.utc
+    session_id: str = ""
+
     if not ctx.session.check_client_capability(ClientCapabilities(roots=RootsCapability())):
         logger.debug("Client does not support roots capability.")
-        return SessionConfig(user_timezone=None, session_id="")
+        return SessionConfig(user_timezone=user_timezone, session_id=session_id)
 
     list_roots_result = await ctx.session.list_roots()
-
-    user_timezone: datetime.tzinfo | None = None
-    session_id: str = ""
 
     for root in list_roots_result.roots:
         match root.name:
@@ -144,15 +127,3 @@ async def get_session_config(ctx: Context[ServerSession, object]) -> SessionConf
                 session_id = str(root.uri).replace(root.uri.scheme, "")
 
     return SessionConfig(user_timezone=user_timezone, session_id=session_id)
-
-
-def get_user_date(user_timezone: datetime.tzinfo | None) -> datetime.date:
-    """
-    Get the current date for the user's timezone, falling back to the server's timezone
-    if user_timezone is not provided.
-    """
-
-    if not user_timezone:
-        return datetime.date.today()
-
-    return datetime.datetime.now(user_timezone).date()

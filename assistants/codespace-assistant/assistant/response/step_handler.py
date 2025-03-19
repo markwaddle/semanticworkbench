@@ -1,7 +1,7 @@
 import logging
 import time
 from textwrap import dedent
-from typing import Any, List
+from typing import Any
 
 import deepmerge
 from assistant_extensions.attachments import AttachmentsConfigModel, AttachmentsExtension
@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 
 async def next_step(
     sampling_handler: OpenAISamplingHandler,
-    mcp_sessions: List[MCPSession],
-    mcp_prompts: List[str],
+    mcp_sessions: list[MCPSession],
+    mcp_prompts: list[str],
     attachments_extension: AttachmentsExtension,
     context: ConversationContext,
     request_config: OpenAIRequestConfig,
@@ -43,6 +43,7 @@ async def next_step(
     attachments_config: AttachmentsConfigModel,
     metadata: dict[str, Any],
     metadata_key: str,
+    memories: list[tuple[str, str]] = [],
 ) -> StepResult:
     step_result = StepResult(status="continue", metadata=metadata.copy())
 
@@ -82,6 +83,7 @@ async def next_step(
     build_request_result = await build_request(
         sampling_handler=sampling_handler,
         mcp_prompts=mcp_prompts,
+        memories=memories,
         attachments_extension=attachments_extension,
         context=context,
         prompts_config=prompts_config,

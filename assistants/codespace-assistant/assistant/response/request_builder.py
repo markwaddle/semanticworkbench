@@ -1,7 +1,6 @@
 import json
 import logging
 from dataclasses import dataclass
-from typing import List
 
 from assistant_extensions.attachments import AttachmentsConfigModel, AttachmentsExtension
 from assistant_extensions.mcp import (
@@ -36,22 +35,23 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class BuildRequestResult:
-    chat_message_params: List[ChatCompletionMessageParam]
+    chat_message_params: list[ChatCompletionMessageParam]
     token_count: int
     token_overage: int
 
 
 async def build_request(
     sampling_handler: OpenAISamplingHandler,
-    mcp_prompts: List[str],
+    mcp_prompts: list[str],
     attachments_extension: AttachmentsExtension,
     context: ConversationContext,
     prompts_config: PromptsConfigModel,
     request_config: OpenAIRequestConfig,
-    tools: List[ChatCompletionToolParam] | None,
+    tools: list[ChatCompletionToolParam] | None,
     tools_config: MCPToolsConfigModel,
     attachments_config: AttachmentsConfigModel,
     silence_token: str,
+    memories: list[tuple[str, str]] = [],
 ) -> BuildRequestResult:
     # Get the list of conversation participants
     participants_response = await context.get_participants(include_inactive=True)
@@ -70,12 +70,14 @@ async def build_request(
     if len(mcp_prompts) > 0:
         additional_system_message_content.append(("Specific Tool Guidance", "\n\n".join(mcp_prompts)))
 
+    additional_system_message_content.extend(memories)
+
     # Build system message content
     system_message_content = build_system_message_content(
         prompts_config, context, participants, silence_token, additional_system_message_content
     )
 
-    chat_message_params: List[ChatCompletionMessageParam] = []
+    chat_message_params: list[ChatCompletionMessageParam] = []
 
     if request_config.is_reasoning_model:
         # Reasoning models use developer messages instead of system messages
@@ -121,7 +123,7 @@ async def build_request(
     )
 
     # Generate the attachment messages
-    attachment_messages: List[ChatCompletionMessageParam] = convert_from_completion_messages(
+    attachment_messages: list[ChatCompletionMessageParam] = convert_from_completion_messages(
         await attachments_extension.get_completion_messages_for_attachments(
             context,
             config=attachments_config,
@@ -168,8 +170,8 @@ async def build_request(
         )
 
     # Create a message processor for the sampling handler
-    def message_processor(messages: List[SamplingMessage]) -> List[ChatCompletionMessageParam]:
-        updated_messages: List[ChatCompletionMessageParam] = []
+    def message_processor(messages: list[SamplingMessage]) -> list[ChatCompletionMessageParam]:
+        updated_messages: list[ChatCompletionMessageParam] = []
 
         def add_converted_message(message: SamplingMessage) -> None:
             updated_messages.append(sampling_message_to_chat_completion_message(message))
